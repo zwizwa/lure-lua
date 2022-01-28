@@ -23,4 +23,4 @@ do
 done
 git commit -am 'update from uc_tools'
 git push
-git origin push HEAD:main
+git push origin HEAD:main
