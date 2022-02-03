@@ -2,23 +2,25 @@
 -- Keep it simple at first: no improper lists, no strings.
 
 -- Pairs are Lua's 2-element arrays
--- The empty list is Lua's nil
+-- The empty list is represented by '#<nil>'
 
--- FIXME: That is a mistake! It makes it impossible to put nil in an
--- array and then iterate over the elements.  Use e.g. '#<nil>' to
--- represent the empty list.
+-- require('lib.log')
 
 local empty = '#<nil>'
 
 local se = { empty = empty }
 
+-- Represent EOF as a thing, not nil.
+local EOF = { "<EOF>" }
+
 function se:next()
    local char = self.stream:read(1)
+   if not char then
+      return EOF
+   end
+   -- log(char)
    if char == '\n' then
       self.nb_newlines = self.nb_newlines + 1
-   end
-   if not char then
-      error({error="EOF"})
    end
    -- self:log("next: " .. char .. "(" .. char:byte(1) .. ")\n")
    return char
@@ -32,6 +34,7 @@ function se:peek()
    if self.head then return self.head end
    while true do
       self.head = self:next()
+      if self.head == EOF then return EOF end
       -- On the first line, '#' is also a comment character.
       -- This is there for #! and Racket #lang forms.
       if self.head == '#' and self.nb_newlines < 1 then
@@ -47,10 +50,21 @@ function se:pop()
    return char
 end
 
-local whitespace = {[' '] = true, ['\n'] = true, ['\r'] = true, ['\t'] = true}
-local function is_whitespace(str)
-   return whitespace[str] or false
+local function charset(str)
+   local set = {}
+   for i=1,#str do
+      local c = str:sub(i,i)
+      set[c] = true
+   end
+   return set
 end
+local function is_charset(str)
+   local set = charset(str)
+   return function(c) return set[c] or false end
+end
+local is_whitespace  = is_charset(' \n\r\t')
+local is_end_of_atom = is_charset(' \n\r\t' .. "()'`,.")
+
 function se:skip_space()
    while true do
       local char = self:peek()
@@ -58,12 +72,20 @@ function se:skip_space()
       self:pop()
    end
 end
+
+se.const = {
+   ['#f'] = 'false',
+   ['#t'] = 'true',
+}
+
 function se:read_atom()
    local chars = {}
    while true do
       local char = self:peek()
-      if is_whitespace(char) or '(' == char or ')' == char or nil == char then
+      if is_end_of_atom(char) or EOF == char then
          local str = table.concat(chars,"")
+         local const = se.const[str]
+         if const then return const end
          local num = tonumber(str)
          return num or str
       end
@@ -94,12 +116,17 @@ function se.list(...)
    return se.array_to_list({...})
 end
 function se.elements(lst)
+   assert(lst)
    local l = lst
    return function()
-      assert(l)
       if l ~= empty then
          if type(l) ~= 'table' then
-            error('bad list pair: ' .. type(l))
+            log_desc({bad_list = lst})
+            if type(l) == 'string' then
+               error('bad list pair: ' .. l)
+            else
+               error('bad list pair: type=' .. type(l))
+            end
          end
          local el, rest = unpack(l)
          l = rest
@@ -120,12 +147,24 @@ end
 function se.map_to_array(fun, lst)
    local arr = {}
    for el in se.elements(lst) do
-      table.insert(arr, fun(el))
+      local single_val = fun(el)
+      table.insert(arr, single_val)
    end
    return arr
 end
 function se.map(fun, lst)
+   assert(lst)
    return se.array_to_list(se.map_to_array(fun,lst))
+end
+function se.foldr(on_pair, on_empty, lst)
+   local function foldr(lst)
+      if se.is_empty(lst) then
+         return on_empty
+      else
+         return on_pair(se.car(lst), foldr(se.cdr(lst)))
+      end
+   end
+   return foldr(lst)
 end
 
 function se.array(lst)
@@ -149,6 +188,9 @@ end
 function se.cdr(pair)
    assert(type(pair) == 'table')
    return pair[2]
+end
+function se.cadr(ppair)
+   return se.car(se.cdr(ppair))
 end
 function se.cons(car, cdr)
    return {car, cdr}
@@ -225,7 +267,13 @@ end
 function se:read_list()
    local objs = {}
    while true do
-      if ')' == self:skip_space() then
+      local c = self:skip_space()
+      if '.' == c then
+         self:pop()
+         local tail_obj = self:read()
+         assert(')' == self:skip_space())
+         return self.append(self.array_to_list(objs), tail_obj)
+      elseif ')' == c then
          self:pop()
          -- For processing it is much more convenient to represent
          -- this as a list of pairs instead of an array.
@@ -236,8 +284,23 @@ function se:read_list()
       table.insert(objs, obj)
    end
 end
+
+se.ticks = {
+   ["'"] = 'quote',
+   [","] = 'unquote',
+   ["`"] = 'quasiquote',
+}
+
 function se:read()
-   if '(' == self:skip_space() then
+   local function tagged(tag)
+      self:pop()
+      return se.list(tag, self:read())
+   end
+   local c = self:skip_space()
+   local tick = self.ticks[c]
+   if (tick) then
+      return tagged(tick)
+   elseif '(' == c then
       self:pop()
       return self:read_list()
    else
@@ -249,11 +312,8 @@ end
 function se:read_multi()
    local exprs = {}
    while true do
-      local ok, err = pcall(function() return self:skip_space() end)
-      if not ok then
-         assert(err and err.error == 'EOF')
-         break
-      end
+      local char = self:skip_space()
+      if char == EOF then break end
       table.insert(exprs, self:read())
    end
    return se.array_to_list(exprs)
@@ -274,6 +334,19 @@ function se.string_to_stream(str)
    return obj
 end
 
+function se.expr_type(e)
+   local typ = type(e)
+   if typ == 'table' then
+      if e[1] ~= nil and e[2] ~= nil then
+         return 'pair'
+      else
+         log_desc(e)
+         error('bad table')
+      end
+   end
+   return typ
+end
+
 function se.new(stream)
    assert(stream)
    local obj = { stream = stream, nb_newlines = 0 }
@@ -291,7 +364,65 @@ function se.read_file_multi(filename)
    return exprs
 end
 
+function se.read_string(str)
+   local stream = se.string_to_stream(str)
+   local parse = se.new(stream)
+   local expr = parse:read(str)
+   return expr
+end
 
+function se.is_expr(expr, tag)
+   if type(expr) ~= 'table' then return false end
+   if not tag then return true end
+   return expr[1] == tag
+end
+
+-- Note: expr does not have the quasiquote.
+function se.qq_eval(env, expr)
+   if type(expr) ~= 'table' then
+      return expr
+   end
+   if se.is_expr(expr, 'unquote') then
+      local _, var = se.unpack(expr, {n=2})
+      local val = env[var]
+      if not val then
+         error("qq_eval undefined variable '" .. var .. "'")
+      end
+      return val
+   end
+   local function sub(expr1)
+      return se.qq_eval(env, expr1)
+   end
+   -- return se.map(sub, expr)
+   -- This needs to operate on pairs to allow unquoted tails.
+   return {sub(expr[1]), sub(expr[2])}
+end
+
+
+-- Constructors are used for pattern matching.
+--
+-- They can be represented as strings, functions or s-expressions.
+-- Only for matching pattern as function the name can not be recovered
+-- so won't work for defmacro.
+function se.constructor(thing)
+   local expr
+   local cons
+   local t = type(thing)
+   if t == 'function' then
+      cons = thing
+   else
+      if t == 'string' then
+         expr = se.read_string(thing)
+      else
+         expr = thing
+      end
+      cons = function(probe)
+         local e = se.qq_eval(probe, expr)
+         return e
+      end
+   end
+   return cons
+end
 
 return se
 
