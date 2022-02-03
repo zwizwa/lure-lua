@@ -4,6 +4,7 @@
 # Modeled after elfutils-lua/update.sh
 set -e
 cd $(dirname $0)
+rm *.lua
 UC_TOOLS=/i/exo/uc_tools
 for file in \
 lua/lure/*.lua \

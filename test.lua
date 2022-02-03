@@ -30,5 +30,12 @@ function test.run()
          mod[k].run(w)
       end
    end
+   -- For loarocks file
+   w("  modules = {\n")
+   for k in pairs(meta.modules) do
+      w("    ['lure.",k,"'] = '",k,".lua',","\n")
+   end
+   w("  }\n")
+
 end
 return test

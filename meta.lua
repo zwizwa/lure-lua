@@ -1,9 +1,11 @@
 return { modules = {
+  asset_scm = true,
   comp = true,
   iolist = true,
   log = true,
   log_se = true,
   match = true,
+  meta = true,
   scheme_flatten_blocks = true,
   scheme = true,
   scheme_luapp = true,
