@@ -95,5 +95,4 @@ function test.gen_rockspec(version)
    w(wrap_rockspec(version,revision,meta.modules))
 end
 
-
 return test
