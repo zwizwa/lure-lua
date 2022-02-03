@@ -1057,11 +1057,18 @@ function smc:reset()
 end
 
 
-function smc:compile_module_file(filename)
+function smc:compile_module_file(filename, asset)
    local basename = string.gsub(filename, "(.*/)*(.*)", "%2")
    local modname = string.gsub(basename, "(.*).sm", "%1")
    assert(modname)
-   local exprs = se.read_file_multi(filename)
+   local exprs
+   if not asset then
+      exprs = se.read_file_multi(filename)
+   else
+      local str = asset[filename]
+      assert(str)
+      exprs = se.read_string_multi(str)
+   end
    local expr = {'module-begin',exprs}
 
    -- Evaluate using the interpreter in an empty environment.  This is

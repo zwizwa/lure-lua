@@ -12,29 +12,28 @@ local scheme_pretty         = require('lure.scheme_pretty')
 local scheme_flatten_blocks = require('lure.scheme_flatten_blocks')
 local scheme_match          = require('lure.scheme_match')
 
+local asset = require('lure.asset_scm')
+
 -- Shorthand for container type conversions
 local l = se.list
 local a = se.list_to_array
 
--- FIXME: Put something else here.
-local test_str = [[
-(module-begin (define (x) x))
-]]
 
 local function main()
    local c = slc.new({ log = log })
    do
       -- Can't bundle this unfortunately...
-      local filename = 'test_rvm.scm_'
+      local filename = 'test_rvm.scm'
       local stream = io.open(filename,"r")
-      if not stream then
-         expr = se.read_string(test_str)
-      else
-         local parser = se.new(stream)
-         local exprs = parser:read_multi()
-         stream:close()
-         expr = {'module-begin',exprs}
-      end
+      --if not stream then
+      --   local str = asset[filename]
+      --   expr = se.read_string(str)
+      --else
+      local parser = se.new(stream)
+      local exprs = parser:read_multi()
+      stream:close()
+      expr = {'module-begin',exprs}
+      --end
    end
 
    -- log_se_n(expr, "INPUT: ")

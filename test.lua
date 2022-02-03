@@ -1,5 +1,7 @@
 local test = {}
 
+local ins = table.insert
+
 -- First make sure all the modules load properly.
 -- lure.meta is generated from files in uc_tools/lua/lure/*.lua
 local meta = require('lure.meta')
@@ -13,12 +15,51 @@ for name in pairs(meta.modules) do
    end
 end
 
+local function wrap_rockspec(version, modules_tab)
+
+local modules = {}
+for k in pairs(modules_tab) do
+   ins(modules, {"    ['lure.",k,"'] = '",k,".lua',","\n"})
+end
+
+return {
+'package = "lure"\n',
+'version = "', version, "-1'\n",
+'source = {\n',
+' url = "https://github.com/zwizwa/lure-lua/archive/v',version,'.zip",\n',
+' dir = "lure-lua-',version,'",\n',
+'}\n',
+[[
+
+description = {
+  summary    = "Lua library for writing Scheme interpreters/compilers",
+  homepage   = "https://github.com/zwizwa/lure-lua",
+  license    = "MIT/X11",
+  maintainer = "Tom Schouten",
+  detailed   = "Lua wrappers for writing Scheme interpreters and compilers.",
+}
+
+dependencies = {
+  "lua >= 5.1"
+}
+
+build = {
+  type = "builtin",
+  module = {
+]],
+modules,
+[[
+    },
+  },
+]]
+}
+end
+
 -- Print out the modules list for the specs file.
 local w = mod.iolist.io_writer(io.stdout)
-local function print_modules()
-   for k in pairs(mod) do
-      w(k,"\n")
-   end
+function test.gen_rockspec(version)
+   assert(version)
+   w(wrap_rockspec(version,meta.modules))
 end
 
 -- This is the one advertised on the luarocks page.
@@ -30,12 +71,6 @@ function test.run()
          mod[k].run(w)
       end
    end
-   -- For loarocks file
-   w("  modules = {\n")
-   for k in pairs(meta.modules) do
-      w("    ['lure.",k,"'] = '",k,".lua',","\n")
-   end
-   w("  }\n")
 
 end
 return test
