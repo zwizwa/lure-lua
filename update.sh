@@ -6,14 +6,7 @@ set -e
 cd $(dirname $0)
 UC_TOOLS=/i/exo/uc_tools
 for file in \
-lua/smc.lua \
-lua/lure/se.lua \
-lua/lure/comp.lua \
-lua/lure/scheme.lua \
-lua/lure/slc.lua \
-lua/lure/smc.lua \
-lua/lure/iolist.lua \
-lua/lure/log.lua \
+lua/lure/*.lua \
 
 do
     here_file=$(basename $file)
