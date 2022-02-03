@@ -29,6 +29,7 @@ local l = se.list
 
 
 local class = {
+   parameterize = comp.parameterize,
 }
 
 -- Bind macros to state object for gensym.
@@ -117,13 +118,23 @@ class.form = {
       return l('lambda', rvars,
                s:compile_extend(
                   {'begin',body},
-                  {vars = vars, rvars = rvars}))
+                  vars, rvars))
    end
 }
 
--- FIXME: Compile in extended environment
-function class.compile_extend(s, expr, new_vars)
-   s:compile(expr)
+-- Compile in extended environment
+function class.compile_extend(s, expr, vars, rvars)
+   local new_env = s.env
+   for var in se.elements(vars) do
+      local binding = {var, se.car(rvars)}
+      new_env = {binding, new_env}
+      rvars = se.cdr(rvars)
+   end
+   s:parameterize(
+      {env = new_env},
+      function()
+         s:compile(expr)
+      end)
 end
 
 
@@ -202,7 +213,7 @@ end
 
 
 function class.new()
-   local obj = { count = 0, renamed = {}, gensyms = {} }
+   local obj = { count = 0, renamed = {}, gensyms = {}, env = {} }
    setmetatable(obj, { __index = class })
    return obj
 end
