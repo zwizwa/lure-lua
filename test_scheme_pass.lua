@@ -7,7 +7,7 @@ local se     = require('lure.se')
 local prompt = require('prompt')
 require('lure.log_se')
 
-local scheme_macro_anf      = require('lure.scheme_macro_anf')
+local scheme_frontend       = require('lure.scheme_frontend')
 local scheme_pretty         = require('lure.scheme_pretty')
 local scheme_flatten_blocks = require('lure.scheme_flatten_blocks')
 local scheme_match          = require('lure.scheme_match')
@@ -30,7 +30,7 @@ local function main()
    local expr = {'module-begin',exprs}
 
    -- log_se_n(expr, "INPUT: ")
-   local expander = scheme_macro_anf.new()
+   local expander = scheme_frontend.new()
    --log_desc({expander = expander})
    -- local expr1 = expander:expand(expr)
    local expr1 = expander:compile(expr)
