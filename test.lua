@@ -27,6 +27,8 @@ for name in pairs(meta.modules) do
    end
 end
 
+local w = mod.iolist.io_writer(io.stdout)
+
 -- Run all modules with a "test_" name prefix.
 function test.run()
    w("Running Lure Tests\n")
@@ -87,7 +89,6 @@ modules,
 end
 
 -- Print out the modules list for the specs file.
-local w = mod.iolist.io_writer(io.stdout)
 function test.gen_rockspec(version)
    assert(version)
    local revision = "-1"
