@@ -116,7 +116,11 @@ local macros = require('lure.scheme_macros')
 scheme.gensym = comp.gensym
 function scheme.macro(fun)
    return function(self, s)
-      s.expr = fun(s.expr, {state = self})
+      local config = {
+         state = self,  -- for gensymn
+         import_read_multi = self.import_read_multi  -- for 'lib' form
+      }
+      s.expr = fun(s.expr, config)
    end
 end
 for k,v in pairs(macros) do

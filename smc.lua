@@ -428,6 +428,12 @@ function smc:closure_name(closure)
    return entry
 end
 
+function smc:scheme_new(config)
+   local s = scheme.new()
+   s.import_read_multi = self.import_read_multi
+   return s
+end
+
 function smc:compile_tasks(module_closure)
 
    -- Emit code for all functions implemented as goto labels followed
@@ -561,7 +567,7 @@ function smc:compile_tasks(module_closure)
    -- 'start' to put everything in motion.
    local env = scheme.push_primitives(module_closure.env, prim)
    assert(#start.args == 0)
-   scheme.new():eval(start.body, env)
+   self:scheme_new():eval(start.body, env)
 
 end
 
@@ -1075,7 +1081,7 @@ function smc:compile_module_file(filename, asset)
    -- ok since the file should contain only definitions.  Insert a
    -- sentinel lambda so this will evaluate to a closure that contains
    -- all the definitions in the environment.
-   local scm = scheme.new()
+   local scm = self:scheme_new()
    local cl = scm:eval({'begin',se.append(exprs,l(l('lambda',l())))})
    -- for el in se.elements(cl.env) do log_se(el) ; log("\n") end
 

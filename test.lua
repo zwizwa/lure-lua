@@ -15,7 +15,9 @@ for name in pairs(meta.modules) do
    end
 end
 
-local function wrap_rockspec(version, modules_tab)
+-- Used by release script.
+-- FIXME: Later maybe track the luarocks revision "-1" ?
+local function wrap_rockspec(version, revision, modules_tab)
 
 local modules = {}
 for k in pairs(modules_tab) do
@@ -23,11 +25,13 @@ for k in pairs(modules_tab) do
 end
 
 return {
+'\n',
 'package = "lure"\n',
-'version = "', version, "-1'\n",
+'version = "', version, revision, '"\n',
+'\n',
 'source = {\n',
-' url = "https://github.com/zwizwa/lure-lua/archive/v',version,'.zip",\n',
-' dir = "lure-lua-',version,'",\n',
+'  url = "https://github.com/zwizwa/lure-lua/archive/v',version,'.zip",\n',
+'  dir = "lure-lua-',version,'",\n',
 '}\n',
 [[
 
@@ -36,7 +40,7 @@ description = {
   homepage   = "https://github.com/zwizwa/lure-lua",
   license    = "MIT/X11",
   maintainer = "Tom Schouten",
-  detailed   = "Lua wrappers for writing Scheme interpreters and compilers.",
+  detailed   = "Lua wrappers for writing Scheme interpreters and compilers.\n",
 }
 
 dependencies = {
@@ -45,12 +49,12 @@ dependencies = {
 
 build = {
   type = "builtin",
-  module = {
+  modules = {
 ]],
 modules,
 [[
-    },
-  },
+  }
+}
 ]]
 }
 end
@@ -59,7 +63,8 @@ end
 local w = mod.iolist.io_writer(io.stdout)
 function test.gen_rockspec(version)
    assert(version)
-   w(wrap_rockspec(version,meta.modules))
+   local revision = "-1"
+   w(wrap_rockspec(version,revision,meta.modules))
 end
 
 -- This is the one advertised on the luarocks page.
