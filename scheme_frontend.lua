@@ -16,6 +16,10 @@
 -- Macro expansion and ANF seem to go hand-in hand.
 -- Variable renaming is useful for later block-flattening.
 
+-- FIXME: This is still written in old se.unpack() style, and might
+-- benefit from using the pattern matcher.  However, it works, so not
+-- touching it for now.
+
 local se = require('lure.se')
 local comp = require('lure.comp')
 
@@ -24,12 +28,14 @@ local a2l = se.array_to_list
 local l = se.list
 
 
+local class = {
+}
 
 -- Bind macros to state object for gensym.
-local macro = {} ; do
+class.macro = {} ; do
    for name, m in pairs(require('lure.scheme_macros')) do
       -- log("MACRO: " .. name .. "\n")
-      macro[name] = function(s, expr)
+      class.macro[name] = function(s, expr)
          return m(expr, { state = s })
       end
    end
@@ -38,7 +44,7 @@ end
 
 local function s_id(s, thing) return thing end
 
-local expander = {
+class.expander = {
    ['string'] = s_id,
    ['number'] = s_id,
    ['pair'] = function(s, expr)
@@ -56,27 +62,26 @@ local function trace(tag, expr)
    -- log('\n') ; log_se_n(expr, tag .. ": ")
 end
 
-
-local function expand_step(s, expr)
+function class.expand_step(s, expr)
    trace("STEP",expr)
    local typ = se.expr_type(expr)
-   local f = expander[typ]
+   local f = s.expander[typ]
    if f == nil then error('expand: bad type ' .. typ) end
    return f(s, expr)
 end
 
-local function expand(s, expr)
+function class.expand(s, expr)
    local again = 'again'
    while again do
       assert(again == 'again')
-      expr, again = expand_step(s, expr)
+      expr, again = s:expand_step(expr)
    end
    return expr
 end
 
 local void = '#<void>'
 
-local form = {
+class.form = {
    ['block'] = function(s, expr)
       local _, bindings, forms = se.unpack(expr, {n = 2, tail = true})
       local function tx_binding(binding)
@@ -109,12 +114,20 @@ local form = {
    ['lambda'] = function(s, expr)
       local _, vars, body = se.unpack(expr, {n = 2, tail = true})
       local rvars = se.map(function(v) return s:rename(v) end, vars)
-      return l('lambda', rvars, s:compile({'begin',body}))
+      return l('lambda', rvars,
+               s:compile_extend(
+                  {'begin',body},
+                  {vars = vars, rvars = rvars}))
    end
 }
 
+-- FIXME: Compile in extended environment
+function class.compile_extend(s, expr, new_vars)
+   s:compile(expr)
+end
 
-local function anf(s, exprs, fn)
+
+function class.anf(s, exprs, fn)
    local normalform = {}
    local bindings = {}
    for e in se.elements(exprs) do
@@ -142,10 +155,10 @@ end
 
 local function apply(s, expr)
    trace("APPLY", expr)
-   return anf(s, expr, function(e) return e end)
+   return s:anf(expr, function(e) return e end)
 end
 
-local compiler = {
+class.compiler = {
    ['string'] = s_id,
    ['number'] = s_id,
    ['pair'] = function(s, expr)
@@ -158,16 +171,16 @@ local compiler = {
       end
    end
 }
-local function compile(s, expr)
-   expr = expand(s, expr)
+function class.compile(s, expr)
+   expr = s:expand(expr)
    trace("COMPILE",expr)
    local typ = se.expr_type(expr)
-   local f = compiler[typ]
+   local f = s.compiler[typ]
    if f == nil then error('compile: bad type ' .. typ) end
    return f(s, expr)
 end
 
-local function gensym(s, prefix)
+function class.gensym(s, prefix)
    -- Gensyms should never clash with source variables.  We can't
    -- guarantee that atm.  FIXME.
    s.count = s.count + 1
@@ -178,7 +191,7 @@ end
 
 -- FIXME: Incorrect!
 -- This needs to track lexical scope.
-local function rename(s, var)
+function class.rename(s, var)
    assert(type(var) == 'string')
    if s.gensyms[var] then return var end
    local sym = s:gensym()
@@ -188,23 +201,12 @@ end
 
 
 
-local class = {
-   expand_step = expand_step,
-   expand = expand,
-   macro = macro,
-   form = form,
-   compile = compile,
-   gensym = gensym,
-   rename = rename,
-   anf = anf,
-}
-
-local function new()
+function class.new()
    local obj = { count = 0, renamed = {}, gensyms = {} }
    setmetatable(obj, { __index = class })
    return obj
 end
 
-class.new = new
+
 return class
 
