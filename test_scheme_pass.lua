@@ -20,21 +20,14 @@ local a = se.list_to_array
 
 
 local function main()
-   local c = slc.new({ log = log })
-   do
-      -- Can't bundle this unfortunately...
-      local filename = 'test_rvm.scm'
-      local stream = io.open(filename,"r")
-      --if not stream then
-      --   local str = asset[filename]
-      --   expr = se.read_string(str)
-      --else
-      local parser = se.new(stream)
-      local exprs = parser:read_multi()
-      stream:close()
-      expr = {'module-begin',exprs}
-      --end
-   end
+   -- Config slc to use asset table
+   local c = slc.new({ log = log, asset = asset })
+   -- HACK: It exposes its reader, which uses the asset table.  This
+   -- just gives us the s-expressions.  Better: make the reader itself
+   -- configurable to use an asset table.
+   local exprs = c:read_multi('test_rvm.scm')
+   assert(exprs)
+   local expr = {'module-begin',exprs}
 
    -- log_se_n(expr, "INPUT: ")
    local expander = scheme_macro_anf.new()
