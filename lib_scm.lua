@@ -16,9 +16,16 @@ return require("lure") -- ; -*- scheme -*-
   
 (define (f x) (+ x x))
 (define (match-add e) (match-qq e ((add ,a ,b) (+ a b))))
-(define (test) (log-se (match-add '(add 1 2))))
+(define (test_match) (log-se (match-add '(add 1 2))))
 (define x '(1 2 3))
 
+(define (test_loop)
+  (let loop ((n 0))
+    (if (> n 3) 'done
+        (begin
+          (log-se-n n 'LOOP)
+          (loop (+ n 1))))))
+        
 
 
 ;; Additional

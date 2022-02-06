@@ -22,6 +22,7 @@
 -- touching it for now.
 
 local se = require('lure.se')
+local tab = require('lure.tab')
 local comp = require('lure.comp')
 
 require('lure.log_se')
@@ -49,7 +50,9 @@ class.macro = {} ; do
    for name, m in pairs(scheme_macros) do
       -- log("MACRO: " .. name .. "\n")
       class.macro[name] = function(s, expr)
-         return m(expr, { state = s, void = void, })
+         local config = { state = s, void = void }
+         tab.copy(s.config, config)
+         return m(expr, config)
       end
    end
 end
@@ -402,8 +405,9 @@ function class.init(s)
    s.base_ref = 'base-ref'
 end
 
-function class.new()
-   local obj = {}
+function class.new(config)
+   local obj = { config = config }
+   -- log_desc({scheme_frontend_config = config})
    setmetatable(obj, { __index = class })
    obj:init()
    return obj

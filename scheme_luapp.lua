@@ -32,11 +32,14 @@ local function mangle(var)
    if not name then return var.unique end
    if name == "base-ref" then return "lib" end
 
+   -- Do some exact matches first
    local alias = {
-      ['+'] = 'add'
+      ['+'] = 'add',
+      ['-'] = 'min',
    }
    if alias[name] then name = alias[name] end
 
+   -- Then replace illegal chars
    local subst = {
       ["next"] = "nxt",
       ["-"] = "_", -- "_dash_",
@@ -124,6 +127,8 @@ local infix = {
    ['-']  = '-',
    ['*']  = '/',
    ['/']  = '/',
+   ['>']  = '>',
+   ['<']  = '<',
 }
 for scm,op in pairs(infix) do
    form[scm] = function(s, args)
@@ -204,11 +209,15 @@ function class.compile(s,expr)
          end}})
          s:w("\n")
       end)
-   local mod =
-      {"local mod = {}\n",
-       "local lib = require('lure.slc_runtime').new(mod)\n",
-       out,
-       "return mod\n"}
+   local mod = {
+      "local mod = {}\n",
+      "local lib = require('lure.slc_runtime').new(mod)\n",
+      out,
+      "return mod\n"
+   }
+   if s.config.debug_lua_output then
+      iolist.write_to_file(s.config.debug_lua_output, mod)
+   end
    return { class = "iolist", iolist = mod }
 end
 
@@ -273,9 +282,8 @@ function class.comp(s,expr)
    )
 end
 
-local function new()
-   -- FIXME: Make sure match raises error on mismatch.
-   local obj = { match = se_match.new(), indent = 0 }
+local function new(config)
+   local obj = { match = se_match.new(), indent = 0, config = config or {} }
    setmetatable(obj, { __index = class })
    return obj
 end

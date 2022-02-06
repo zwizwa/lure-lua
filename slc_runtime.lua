@@ -99,6 +99,9 @@ end
 rt['log-se'] = function(se)
    log_se(se)
 end
+rt['log-se-n'] = function(se, tag)
+   log_se_n(se, tag)
+end
 
 
 rt['ok'] = function()
