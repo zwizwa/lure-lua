@@ -13,9 +13,13 @@ function gensym(s)
    s.n = s.n + 1
    return "r" .. s.n
 end
-local state = { n = 0, gensym = gensym }
+function module_define(s, var, expr)
+end
+
+local state = { n = 0, gensym = gensym, module_define = module_define }
 local function cfg(c)
    c.state = state
+   c.void = '#<void>'
    return c
 end
 
@@ -28,17 +32,17 @@ local function macro_step(expr)
    local form = se.car(expr)
    assert(form and type(form) == 'string')
    local macro = macros[form]
-   assert(macro)
+   if not macro then return nil end
    local cfg = config[form] or cfg({})
    assert(cfg)
    return macro(expr, cfg)
 end
 
 local prim = {
-   ['block']  = true,
-   ['lambda'] = true,
-   ['if']     = true,
-   ['set!']   = true,
+   ['primitive-begin'] = true,
+   ['lambda']   = true,
+   ['if']       = true,
+   ['set!']     = true,
    -- For implementing trampoline
    ['named-let-trampoline'] = true,
    ['quote']  = true,
@@ -54,12 +58,12 @@ local function expand(stepped)
          return
       end
       if type(stepped) ~= 'table' then
-         log_w("no expr\n");
+         -- log_w("no expr\n");
          return
       end
       local form = se.car(stepped)
       if type(form) ~= 'string' then
-         log_w("no form\n");
+         -- log_w("no form\n");
          return
       end
       if prim[form] then
@@ -67,6 +71,10 @@ local function expand(stepped)
          return
       end
       stepped = macro_step(stepped)
+      if not stepped then
+         -- log_w("form '", form, "' not defined\n")
+         return
+      end
       log(" -> ") ; log_se(stepped) ; log("\n")
       i = i + 1
    end
@@ -88,7 +96,7 @@ local function test()
    t("'(a . (b c))")
    t("`(a . ,b)")
 
-   t("(module-begin 1 2)")
+   -- t("(module-begin 1 2)")
    t("(letrec ((a 1) (b 2)) a)")
    t("(begin)")
    t("(begin 123)")
@@ -105,6 +113,7 @@ local function test()
    t("(let* ((a 1) (b 2)) a b)")
    t("(or a b)")
    t("(and a b)")
+   t("(match-qq expr ((add ,a ,b) (+ a b)))")
 
 end
 

@@ -5,8 +5,11 @@ local se        = require('lure.se')
 local se_match  = require('lure.se_match')
 local iolist    = require('lure.iolist')
 local lure_comp = require('lure.comp')
+local scheme_frontend = require('lure.scheme_frontend')
+local scheme_pretty   = require('lure.scheme_pretty')
 local l = se.list
 local ins = table.insert
+local pprint = scheme_pretty.new()
 
 local class = {}
 
@@ -21,10 +24,74 @@ class.tab          = lure_comp.tab
 -- Expressions are always compiled in binding position, are already at
 -- indented position and should not print newline.
 
-local function commalist(lst)
+local lib = require('lure.slc_runtime')
+
+local function mangle(var)
+   assert(var and var.unique)
+   local name = var.var
+   if not name then return var.unique end
+   if name == "base-ref" then return "lib" end
+
+   local alias = {
+      ['+'] = 'add'
+   }
+   if alias[name] then name = alias[name] end
+
+   local subst = {
+      ["next"] = "nxt",
+      ["-"] = "_", -- "_dash_",
+      ["+"] = "_", -- "_dash_",
+      ["!"] = "",  -- "_bang_",
+      ["?"] = "p", -- "_pred_",
+      [">"] = "_gt_",
+      ["/"] = "_div_",
+      ["="] = "_is_",
+   }
+   for from,to in pairs(subst) do
+      name = string.gsub(name,from,to)
+   end
+   return {var.unique,"_",name}
+end
+
+-- FIXME: Go over tree once to collect the reverse mappings:
+--  (r22:r21 (r34:base-ref 'cons))
+-- FIXME: Create a library with generic iterators.
+-- FIXME: Actually it's simpler: compile the quotation into cons in the frontend.
+local function iol_cons(a,d)
+   return {"{",a,",",d,"}"}
+end
+
+local function iol_atom(a)
+   if type(a) == 'table' and a.class == 'var' then
+      return mangle(a)
+   elseif type(a) == 'number' then
+      return a
+   elseif type(a) == 'string' then
+      return {"'",a,"'"} -- FIXME: string quoting
+   elseif a == scheme_frontend.void then
+      return 'nil'
+   elseif type(a) == 'table' then
+      -- All tables are abstract types wrapped in the style of se.lua
+      local et = se.expr_type(a)
+      if et == 'expr' then
+         return iol_atom(a.expr)
+      elseif et == 'pair' then
+         return iol_cons(iol_atom(a[1]), iol_atom(a[2]))
+      else
+         error('bad expr_type = ' .. et)
+      end
+   else
+      log_desc({bad_atom = var})
+      log_se_n(a,"BAD_ATOM: ")
+      error("syntax error")
+      -- return "<BADATOM>"
+   end
+end
+
+function class.commalist(s,lst)
    local iol = {}
    for el, last in se.elements(lst) do
-      ins(iol, el)
+      ins(iol, iol_atom(el))
       if not se.is_empty(last) then
          ins(iol, ", ")
       end
@@ -32,44 +99,84 @@ local function commalist(lst)
    return iol
 end
 
+
+-- Special syntax is implemented using another layer of special forms.
+local form = {}
+form['table-set!'] = function(s, args)
+   s.match(
+      args,
+      {{"(,tab ,key, ,val)", function(m)
+           s:w(iol_atom(m.tab), "[", iol_atom(m.key),"] = ",iol_atom(m.val))
+        end}})
+end
+form['table-ref'] = function(s, args)
+   s.match(
+      args,
+      {{"(,tab ,key)", function(m)
+           s:w(iol_atom(m.tab), "[", iol_atom(m.key),"]")
+        end}})
+end
+
+
+-- Lua infix functions
+local infix = {
+   ['+']  = '+',
+   ['-']  = '-',
+   ['*']  = '/',
+   ['/']  = '/',
+}
+for scm,op in pairs(infix) do
+   form[scm] = function(s, args)
+      local a, b = se.unpack(args, {n=2})
+      s:w(iol_atom(a)," ",op," ",iol_atom(b))
+   end
+end
+
+
+
+
 function class.w_bindings(s, bindings)
-   s:indented(
-      function()
-         for binding in se.elements(bindings) do
-            s:w(s:tab())
-            s.match(
-               binding,
-               {
-                  -- Statements
-                  {"(_ ,expr)", function(b)
-                      s:i_comp(b.expr)
-                  end},
-                  -- Special case the function definitions
-                  {"(,var (lambda ,args ,expr))", function(b)
-                      s:w("local function ",b.var,"(", commalist(b.args),")","\n")
+   for binding in se.elements(bindings) do
+      s:w(s:tab())
+      s.match(
+         binding,
+         {
+            -- Statements
+            {"(_ ,expr)", function(b)
+                s:i_comp(b.expr)
+            end},
+            -- Special case the function definitions
+            {"(,var (lambda ,args ,expr))", function(b)
+                s:indented(
+                   function()
+                      s:w("local function ", iol_atom(b.var), "(", s:commalist(b.args),")","\n")
                       s:w_body(b.expr)
                       s:w(s:tab(),"end")
-                  end},
-                  -- Other variable definitions
-                  {"(,var ,expr)", function(b)
-                      s:w("local ", b.var, " = ")
-                      s:i_comp(b.expr)
-                      -- FIXME: print orig var name in comment
-                  end},
-            })
-            s:w("\n")
-         end
-   end)
+                   end)
+            end},
+            -- Other variable definitions
+            {"(,var ,expr)", function(b)
+                s:w("local ", iol_atom(b.var), " = ")
+                s:i_comp(b.expr)
+                -- FIXME: print orig var name in comment
+            end},
+      })
+      s:w("\n")
+   end
+end
+
+function class.w_indented_bindings(s, bindings)
+   s:indented(function() s:w_bindings(bindings) end)
 end
 
 function class.w_body(s, expr)
    s.match(
       expr,
       -- The do .. end block can be omitted in a function body.
-      {{"(block ,bindings)", function(m)
-           s:w_bindings(m.bindings)
+      {{"(block . ,bindings)", function(m)
+           s:w_indented_bindings(m.bindings)
        end},
-       {"(unquote body)", function(m)
+       {",body", function(m)
            s:i_comp(m.body)
       end}})
 end
@@ -82,6 +189,7 @@ end
 
 -- Top level entry point
 function class.compile(s,expr)
+   -- pprint:pprint_to_stream(io.stderr,expr)
    local out = {}
    s:parameterize(
       {out = out},
@@ -91,16 +199,25 @@ function class.compile(s,expr)
          s.indent = -1 -- Undo indent in w_bindings
          s.match(
             expr,
-            {{"(block ,bindings)", function(m)
+            {{"(block . ,bindings)", function(m)
                  s:w_bindings(m.bindings)
          end}})
          s:w("\n")
       end)
-   return out
+   local mod =
+      {"local mod = {}\n",
+       "local lib = require('lure.slc_runtime').new(mod)\n",
+       out,
+       "return mod\n"}
+   return { class = "iolist", iolist = mod }
 end
 
 function class.i_comp(s, expr)
    s:indented(function() s:comp(expr) end)
+end
+
+function class.w_atom(s, a)
+   s:w(iol_atom(a))
 end
 
 -- Recursive expression compiler.
@@ -108,53 +225,49 @@ function class.comp(s,expr)
    s.match(
       expr,
       {
-         -- FIXME: All these need expression result assignment and
-         -- explicit return.  Solve that in a preprocessing step, e.g:
-
-         -- (lambda () (block (
-         --   (a #<nil>)
-         --   (_ (if cond
-         --        (set! a 1)
-         --        (set! a 2)))
-         --   (return a)
-         --   ))
-
-         -- Reduced block form where all statements have been included
-         -- as bindings to '_' to indicate ignored value.
-         {"(block ,bindings)", function(m)
+         {"(block . ,bindings)", function(m)
              s:w(s:tab(),"do\n")
              s:w_bindings(m.bindings)
              s:w(s:tab(),"end\n")
          end},
-         -- Reduced lambda form with single body expression..
-         -- Second form is generic.
          {"(lambda ,vars ,expr)", function(m)
-             s:w("function(",commalist(m.vars),")\n")
-             s:w_body(m.expr)
-             s:w(s:tab(),"end")
+             s:w("function(",s:commalist(m.vars),")\n")
+             s:indented(
+                function()
+                   s:w_body(m.expr)
+                   s:w(s:tab(),"end")
+                end,
+                0)
          end},
          {"(if ,cond ,etrue, efalse)", function(m)
-             s:w("if ", m.cond, " then\n")
-             s:w_body(m.etrue)
-             s:w(s:tab(), "else\n")
-             s:w_body(m.efalse)
-             s:w(s:tab(), "end")
+             s:w("if ", iol_atom(m.cond), " then\n")
+             s:indented(
+                function()
+                   s:w_body(m.etrue)
+                   s:w(s:tab(), "else\n")
+                   s:w_body(m.efalse)
+                   s:w(s:tab(), "end")
+                end,
+                -1)
          end},
-         {"(set! ,var ,val)", function(m)
-             s:w(m.var, " = ", m.val)
+         {"(set! ,var ,expr)", function(m)
+             s:w(iol_atom(m.var), " = ")
+             s:i_comp(m.expr)
          end},
-         {"(return ,val)", function(m)
-             s:w("return ", m.val)
+         {"(return ,expr)", function(m)
+             s:w("return ")
+             s:i_comp(m.expr)
+         end},
+         {"(,fun . ,args)", function(m)
+             local w_f = m.fun.var and form[m.fun.var]
+             if w_f then
+                w_f(s, m.args)
+             else
+                s:w(iol_atom(m.fun),"(",s:commalist(m.args),")")
+             end
          end},
          {",atom", function(m)
-             if type(m.atom) == 'number' then
-                s:w(m.atom)
-             elseif type(m.atom) == 'string' then
-                s:w(m.atom)
-             else
-                log_se_n(expr,"BAD: ")
-                error("syntax error")
-             end
+             s:w_atom(m.atom)
          end}
       }
    )

@@ -212,8 +212,8 @@ end
 
 
 form['block'] = function(self, expr)
-   local _, bindings, forms = se.unpack(expr, {n = 2, tail = true})
-   self:compile_letstar(bindings, forms)
+   local _, bindings = se.unpack(expr, {n = 1, tail = true})
+   self:compile_letstar(bindings, se.empty)
 end
 
 form['define'] = function(self, expr)
@@ -297,6 +297,8 @@ form['if'] = function(self, expr)
    end
 end
 
+local void = { class = 'void' }
+
 -- Wrap some macros from scheme_macros.lua
 local function macro(m, config)
    return function(self, expr)
@@ -306,6 +308,7 @@ local function macro(m, config)
       end
       -- Many macros need state:gensym() so just pass it by default.
       new_config.state = self
+      new_config.void = void
       local expanded = m(expr, new_config)
       -- log_se(expanded) ; log('\n')
       self:compile(expanded)
@@ -333,7 +336,7 @@ function slc:compile(expr)
    if (expr == 'nil') then
       -- Don't emit assignment
       self:w("\n",self:tab())
-   elseif type(expr) == 'table' then
+   elseif type(expr) == 'table' and not expr.class then
       -- S-expression
       local form_name, form_args = se.unpack(expr, {n = 1, tail = true})
       assert(form_name and type(form_name == 'string'))

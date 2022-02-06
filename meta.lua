@@ -1,11 +1,14 @@
 return { modules = {
   'asset_scm',
   'comp',
+  'init',
   'iolist',
+  'lib_scm',
   'log',
   'log_se',
   'match',
   'meta',
+  'scheme_blockval',
   'scheme_flatten_blocks',
   'scheme_frontend',
   'scheme',
@@ -30,7 +33,6 @@ return { modules = {
   'test_scheme_macros',
   'test_scheme_pass',
   'test_se_match',
-  'test_slc2',
   'test_slc',
   'test_smc',
 }}

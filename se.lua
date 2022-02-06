@@ -27,7 +27,10 @@ function se:next()
 end
 
 function se:skip_line()
-   while '\n' ~= self:next() do end
+   while true do
+      local c = self:next()
+      if c == '\n' or c == EOF then return end
+   end
 end
 
 function se:peek()
@@ -143,7 +146,6 @@ function se.reverse(lst)
    return l
 end
 
--- FIXME: Test
 function se.map_to_array(fun, lst)
    local arr = {}
    for el in se.elements(lst) do
@@ -156,6 +158,25 @@ function se.map(fun, lst)
    assert(lst)
    return se.array_to_list(se.map_to_array(fun,lst))
 end
+
+-- FIXME: generalize
+function se.zip_to_array(fun, lst_a, lst_b)
+   local arr = {}
+   for el in se.elements(lst_a) do
+      local single_val = fun(el, se.car(lst_b))
+      lst_b = se.cdr(lst_b)
+      table.insert(arr, single_val)
+   end
+   return arr
+end
+function se.zip(fun, lst_a, lst_b)
+   assert(lst_a)
+   assert(lst_b)
+   return se.array_to_list(se.zip_to_array(fun,lst_a,lst_b))
+end
+
+
+
 function se.foldr(on_pair, on_empty, lst)
    local function foldr(lst)
       if se.is_empty(lst) then
@@ -210,7 +231,11 @@ function se.iolist(expr)
       return expr
    elseif type(expr) == 'table' and expr.class then
       if expr.iolist then
-         return expr.iolist(expr)
+         if type(expr.iolist) == 'function' then
+            return expr.iolist(expr)
+         else
+            return expr.iolist
+         end
       else
          return {'#<',expr.class,'>'}
       end
@@ -279,6 +304,8 @@ function se:read_list()
          -- this as a list of pairs instead of an array.
          -- return objs
          return self.array_to_list(objs)
+      elseif EOF == c then
+         error("missing ')'")
       end
       local obj = self:read()
       table.insert(objs, obj)
@@ -338,17 +365,28 @@ function se.string_to_stream(str)
    return obj
 end
 
+-- We assume the following: Cons pair's are "naked".  This allows
+-- usinging Lua's {,} constructor.  To distiguish these from other
+-- objects represented as tables, we require those to have .class
+-- variable defined.
 function se.expr_type(e)
    local typ = type(e)
    if typ == 'table' then
       if e[1] ~= nil and e[2] ~= nil then
          return 'pair'
       else
-         log_desc(e)
-         error('bad table')
+         if e.class then
+            return e.class
+         else
+            log_desc(e)
+            error('bad table')
+         end
       end
    end
    return typ
+end
+function se.is_pair(e)
+   return 'pair' == se.expr_type(e)
 end
 
 function se.new(stream)

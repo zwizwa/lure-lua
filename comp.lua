@@ -40,8 +40,9 @@ function comp:tab()
    return strs
 end
 
-function comp:indented(fn)
-   self:parameterize({ indent = self.indent + 1 }, fn)
+function comp:indented(fn, maybe_offset)
+   local offset = maybe_offset or 1
+   self:parameterize({ indent = self.indent + offset }, fn)
 end
 
 
@@ -172,34 +173,39 @@ end
 -- table.
 
 -- Uncurried
-function comp.multipass(config, passes, ir)
+function comp.multipass(maybe_config, passes, ir)
+   local config = maybe_config or {}
    for _,pass in ipairs(passes) do
       -- Load the module, or use provided module
       local mod = pass
       if type(pass) == 'string' then
-         log("PASS: " .. pass .. "\n")
+         -- log("PASS: " .. pass .. "\n")
          mod = require(pass)
+      else
+         pass = mod.name or "<anonymous-pass>"
       end
       -- Instantiate the compiler, passing it shared config.
       local c = mod.new(config)
       -- Run the compiler
       ir = c:compile(ir)
+      if config.trace then
+         config.trace(ir, pass, config)
+      end
    end
    return ir
 end
 
 -- Curried, wrapping multple passes as a single compiler object that
 -- can be used as a pass.  ( Wannabe Monad. )
-function comp.make_multipass(passes)
-   return {
-      new = function(config)
-         return {
-            compile = function(_, ir)
-               return comp.multipass(config, passes, ir)
-            end
-         }
-      end
-   }
+function comp.make_multipass_new(passes)
+   return function(config)
+      return {
+         compile = function(_, ir)
+            return comp.multipass(config, passes, ir)
+         end
+      }
+   end
 end
+
 
 return comp

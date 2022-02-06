@@ -1,8 +1,8 @@
 -- Pretty printer for special forms.
 
-local se = require('lure.se')
+local se     = require('lure.se')
 local iolist = require('lure.iolist')
-local comp = require('lure.comp')
+local comp   = require('lure.comp')
 
 local ins = table.insert
 local a2l = se.array_to_list
@@ -14,7 +14,6 @@ local cdr = se.cdr
 
 -- Define types
 
-local function s_id(s, thing) return thing end
 
 
 local function trace(tag, expr)
@@ -34,76 +33,61 @@ local function tab(s)
    return iol
 end
 
+-- Forms that are not in this table are treated the same as pp_app
 local pprint_form = {
    ['block'] = function(s, expr)
-      local _, bindings, rest = se.unpack(expr, {n=2, tail=true})
-      local nb = se.length(bindings)
-      if nb > 0 then
-         s:w(s:tab(),"(block (\n")
-      else
-         s:w(s:tab(),"(block ()\n")
-      end
+      local _, bindings = se.unpack(expr, {n=1, tail=true})
+      s:w("\n",s:tab(),"(block")
       s:indented(
          function()
-            s:indented(
-               function()
-                  for binding in se.elements(bindings) do
-                     if se.length(binding) == 1 then
-                        s:w(s:tab(),"(",car(binding),")\n")
-                     else
-                        local var, vexpr = se.unpack(binding, {n=2})
-                        if type(vexpr) ~= 'table' then
-                           s:w(s:tab(),se.iolist(binding),"\n")
-                        else
-                           s:w(s:tab(),"(",var,"\n")
-                           s:indented(
-                              function() s:pprint(vexpr) end)
-                           s:w(s:tab(),")\n")
-                        end
-                     end
-                  end
-               end)
-            if nb > 0 then
-               s:w(s:tab(),")\n")
+            for binding in se.elements(bindings) do
+               s:w("\n",s:tab())
+               local var, vexpr = se.unpack(binding, {n=2})
+               s:w("(", se.iolist(var), " ")
+               s:indented(
+                  function()
+                     s:pprint(vexpr)
+                  end)
+               s:w(")")
             end
-            for e in se.elements(rest) do
-               s:pprint(e)
-            end
-         end)
-      s:w(s:tab(),")\n")
+      end)
+      s:w(")")
    end,
-   -- Forms that are not in this table are treated same as pp_app
    ['lambda'] = function(s, expr)
       local _, vars, body = se.unpack(expr, {n=2, tail=true})
-      s:w(s:tab(),"(lambda ", se.iolist(vars),"\n")
+      s:w("\n",s:tab(),"(lambda ", se.iolist(vars)," ")
       s:indented(
          function()
+            s:w(s:tab())
             for e in se.elements(body) do
                s:pprint(e)
             end
       end)
-      s:w(s:tab(),")\n")
    end,
    ['if'] = function(s, expr)
       local _, var, etrue, efalse = se.unpack(expr, {n=4})
-      s:w(s:tab(),"(if ",var,"\n")
+      s:w("(if ", se.iolist(var)," ")
       s:indented(
          function()
             s:pprint(etrue)
+            s:w(" ")
             s:pprint(efalse)
          end)
-      s:w(s:tab(),")\n")
    end,
 }
 local function pp_app(s, expr)
-   s:w(s:tab(),se.iolist(expr),"\n")
+   s:w(se.iolist(expr))
+end
+
+local function pp_prim(s, thing)
+   s:w(se.iolist(thing))
 end
 
 local pprinter = {
-   ['string'] = s_id,
-   ['number'] = s_id,
-   ['boolean'] = s_id,
-   ['pair'] = function(s, expr)
+   ['string']  = pp_prim,
+   ['number']  = pp_prim,
+   ['boolean'] = pp_prim,
+   ['pair']    = function(s, expr)
       local car, cdr = unpack(expr)
       local pp = s.pprint_form[car]
       if pp ~= nil then
@@ -115,9 +99,14 @@ local pprinter = {
 }
 local function pprint(s, expr)
    local typ = se.expr_type(expr)
+   assert(typ)
    local f = pprinter[typ]
-   if f == nil then error('expand: bad type ' .. typ) end
-   return f(s, expr)
+   if f then
+      return f(s, expr)
+   else
+      -- Assume everything else can be printed by se.iolist
+      pp_prim(s, expr)
+   end
 end
 
 local function pprint_to_stream(s,stream,expr)
@@ -128,10 +117,14 @@ local function pprint_to_stream(s,stream,expr)
    end
    comp.parameterize(
       s, { w = w },
-      function() s:pprint(expr) end)
+      function()
+         s:pprint(expr)
+         s:w("\n")
+      end)
 end
 
 local class = {
+   compile,
    pprint_to_stream = pprint_to_stream,
    pprint = pprint,
    pprint_form = pprint_form,
@@ -139,11 +132,18 @@ local class = {
    tab = tab,
    parameterize = comp.parameterize,
 }
-local function new()
-   local obj = { count = 0, indent = 0 }
+function class.new()
+   local obj = {
+      indent = -1 -- 'block' will indent
+   }
    setmetatable(obj, { __index = class })
    return obj
 end
-class.new = new
+
+function class.log_pp(ir)
+   local pp = class.new()
+   pp:pprint_to_stream(io.stderr, ir)
+end
+
 return class
 

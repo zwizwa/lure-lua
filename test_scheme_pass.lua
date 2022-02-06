@@ -1,52 +1,56 @@
 #!/usr/bin/env lua
+
 -- slc variant that can cmpile test_rvm.scm
 package.path = package.path .. ";./?.lua"
 
-local slc    = require('lure.slc')
+-- Compilers to test
+local slc2   = require('lure.slc2')
+
+-- Test code
 local se     = require('lure.se')
-local prompt = require('prompt')
+local pretty = require('lure.scheme_pretty')
 require('lure.log_se')
 
-local scheme_frontend       = require('lure.scheme_frontend')
-local scheme_pretty         = require('lure.scheme_pretty')
-local scheme_flatten_blocks = require('lure.scheme_flatten_blocks')
-local scheme_match          = require('lure.scheme_match')
-
 local asset = require('lure.asset_scm')
+
+local pprint = pretty.new()
 
 -- Shorthand for container type conversions
 local l = se.list
 local a = se.list_to_array
 
+local function trace(ir, pass)
+   log_w("\n",pass, ":\n")
+   assert(type(ir) == 'table')
+   if ir.class then
+      log_w(se.iolist(ir))
+   else
+      pprint:pprint_to_stream(io.stderr,ir)
+   end
+   -- log_se(ir)
+end
+
+local config = {
+   trace = trace,
+}
 
 local function main()
-   -- Config slc to use asset table
-   local c = slc.new({ log = log, asset = asset })
-   -- HACK: It exposes its reader, which uses the asset table.  This
-   -- just gives us the s-expressions.  Better: make the reader itself
-   -- configurable to use an asset table.
-   local exprs = c:read_multi('test_rvm.scm')
+   -- local input = 'test_rvm.scm'
+   local input = 'test_scheme_pass.scm'
+
+   local str = asset[input]
+   assert(str)
+   local exprs = se.read_string_multi(str)
    assert(exprs)
    local expr = {'module-begin',exprs}
 
-   -- log_se_n(expr, "INPUT: ")
-   local expander = scheme_frontend.new()
-   --log_desc({expander = expander})
-   -- local expr1 = expander:expand(expr)
-   local expr1 = expander:compile(expr)
-   -- log_se_n(expr1, "COMPILED: ")
-   local pprint = scheme_pretty.new()
-   -- pprint:pprint_to_stream(io.stderr,expr1)
+   -- All compilers expect a module-begin form.
+   local c = slc2.new(config)
+   local lua_iol = c:compile(expr)
 
-   local flattener = scheme_flatten_blocks.new()
-   local expr2 = flattener:compile(expr1)
-   -- pprint:pprint_to_stream(io.stderr,expr2)
-   
-   local test_match = scheme_match.new()
-   local expr3 = test_match:compile(expr2)
-   pprint:pprint_to_stream(io.stderr,expr3)
-   
-
+   -- The result is an iolist containing the lua expression.
+   local lua_mod = slc2.eval(lua_iol)
+   log_desc(lua_mod)
 end
 
 return { run = main }

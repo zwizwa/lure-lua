@@ -608,6 +608,22 @@ asdf
 
 
 ]],
+['test_scheme_pass.scm'] = [[
+;; (define (id x) x)
+;; (lambda (x) x)
+(define (fun0 x) x)
+
+;; (define (fun1 q)
+;;   (let* ((a 1)
+;;          (b (if q 123 456))
+;;          (c 3)
+;;          (f (lambda (x y) (add x y)))
+;;          )
+;;     (if a
+;;         a
+;;         (add a (f b c)))))
+
+]],
 ['test_slc.scm'] = [[
 (define (test_add a b) (add a b))
 (define (test_if) (let* ((a (if 1 2 3))) a))
@@ -625,23 +641,6 @@ asdf
 
 
 
-
-]],
-['test_slc2.scm'] = [[
-(block (
-  (fun1
-    (lambda (x)
-      (block (
-        (_ (if x
-             (block ((_ (set! rv 1))))
-             (block ((_ (set! rv 2))))))))))
-  (fun2
-    (lambda ()
-      (block (
-        (f (lambda (x) (block ((_ (return x))))))
-        (a 123)
-        (_ (set! a 456))))))
-))
 
 ]],
 ['test_slc_debug.scm'] = [[
