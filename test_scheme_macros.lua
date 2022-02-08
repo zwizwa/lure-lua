@@ -114,6 +114,8 @@ local function test()
    t("(or a b)")
    t("(and a b)")
    t("(match-qq expr ((add ,a ,b) (+ a b)))")
+   t("(letrec@ ((a (lambda (n) (b n))) (b (lambda (n) (a (+ n 1))))) (a 0))")
+   t("(parameterize ((a new_a)) (body))")
 
 end
 
