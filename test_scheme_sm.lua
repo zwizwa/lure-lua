@@ -1,7 +1,8 @@
-local se      = require('lure.se')
-local comp    = require('lure.comp')
-local asset   = require('lure.asset_scm')
-local scheme2 = require('lure.scheme2')
+local se        = require('lure.se')
+local comp      = require('lure.comp')
+local asset     = require('lure.asset_scm')
+local scheme_sm = require('lure.scheme_sm')
+local pretty    = require('lure.scheme_pretty')
 
 require('lure.log_se')
 
@@ -14,7 +15,7 @@ local c_new =
          'lure.scheme_frontend',
          'lure.scheme_flatten_blocks',
       })
-local filename = 'test_scheme2.scm'
+local filename = 'test_scheme_sm.scm'
 local str = asset[filename]
 
 function mod.run()
@@ -23,15 +24,21 @@ function mod.run()
    -- Instead of creating a single expression, restart the interpreter
    -- for each expression to isolate the tests.
    for expr in se.elements(exprs) do
+
       log_se_n(expr, "INPUT:")
       local c = c_new()
       local ir = c:compile(expr)
-      log_se_n(ir, "IR:")
-      local e = scheme2.new()
+
+      log("IR:")
+      pretty.log_pp(ir)
+
+      local e = scheme_sm.new()
       e.prim = require('lure.slc_runtime')
-      local rv = e:eval(ir)
-      log_se_n(rv, "OUTPUT:")
-      log("\n")
+      local out = e:compile(ir)
+
+      log("OUTPUT:")
+      pretty.log_pp(out)
+
    end
 end
 

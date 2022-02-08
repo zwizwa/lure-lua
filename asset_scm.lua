@@ -608,7 +608,7 @@ asdf
 
 
 ]],
-['test_scheme2.scm'] = [[
+['test_scheme_blockint.scm'] = [[
 ;; Each expression is evaluated separately in test_scheme2.lua
 
 123
@@ -646,6 +646,23 @@ asdf
              (loop (* 2 n)))))))
 
 ]],
+['test_scheme_luapp.scm'] = [[
+(block
+  (fun1
+    (lambda (x)
+      (block
+        (rv #<void>)
+        (_ (if x
+             (block (_ (set! rv 1)))
+             (block (_ (set! rv 2))))))))
+  (fun2
+    (lambda ()
+      (block
+        (f (lambda (x) (block (_ (return x)))))
+        (a 123)
+        (_ (set! a 456)))))
+)
+]],
 ['test_scheme_pass.scm'] = [[
 ;; (define (id x) x)
 ;; (lambda (x) x)
@@ -660,6 +677,39 @@ asdf
 ;;     (if a
 ;;         a
 ;;         (add a (f b c)))))
+
+]],
+['test_scheme_sm.scm'] = [[
+;; Each expression is compiled separately.
+
+(let loop ((n 0))
+  (if (> n 3) n (loop (+ n 1))))
+
+
+;; 123
+
+;; (begin 1 2)
+
+;; (+ 1 2)
+
+;; (+ (+ 1 2) (+ 3 4))
+
+;; (if (= 1 2) 123 456)
+
+;; (begin (define (id x) x) (id 123))
+
+;; (let ((a (+ 1 2))
+;;       (b (+ 3 4)))
+;;   (+ a b))
+
+;; (let loop ((n 0))
+;;   (if (> n 3) n (loop (+ n 1))))
+
+;; ;; Should fail compilation due to inline loop.
+;; (let loop ((n 2))
+;;   (if (> n 10) n
+;;       (+ (loop (+ n 1))
+;;          (loop (* 2 n)))))
 
 ]],
 ['test_slc.scm'] = [[
