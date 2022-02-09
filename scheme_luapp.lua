@@ -24,13 +24,14 @@ class.tab          = lure_comp.tab
 -- Expressions are always compiled in binding position, are already at
 -- indented position and should not print newline.
 
+-- FIXME: There's a double :tab() somewhere.
+
 local lib = require('lure.slc_runtime')
 
 local function mangle(var)
    assert(var and var.unique)
    local name = var.var
    if not name then return var.unique end
-   if name == "base-ref" then return "lib" end
 
    -- Do some exact matches first
    local alias = {
@@ -199,25 +200,26 @@ end
 
 -- Top level entry point
 function class.compile(s,expr)
-   -- pprint:pprint_to_stream(io.stderr,expr)
-   local out = {}
+
+   -- The IR expr is a single lambda expression, parameterized by
+   -- 'lib_ref', a function that performs library symbol lookup for
+   -- all free variables that were found by scheme_frontend.
+   local mod_body = {}
    s:parameterize(
-      {out = out},
+      {out = mod_body},
       function()
-         -- Toplevel block can be removed.  We assume the toplevel
-         -- expression is a block representing a Lua module.
-         s.indent = -1 -- Undo indent in w_bindings
-         s.match(
-            expr,
-            {{"(block . ,bindings)", function(m)
-                 s:w_bindings(m.bindings)
-         end}})
+         s:comp(expr)
          s:w("\n")
       end)
    local mod = {
+      "local mod_body = ",mod_body,"\n",
+
+      -- Emit code that binds this function to the library.  The
+      -- library 'module-register!' will record definitions in the
+      -- 'mod' table.
       "local mod = {}\n",
-      "local lib = require('lure.slc_runtime').new(mod)\n",
-      out,
+      "local lib_ref = require('lure.slc_runtime').new(mod)\n",
+      "mod_body(lib_ref)\n",
       "return mod\n"
    }
    if s.config.debug_lua_output then
@@ -233,6 +235,21 @@ end
 function class.w_atom(s, a)
    s:w(iol_atom(a))
 end
+
+-- FIXME: Also do 'quote' or 'lit'
+
+-- Undo the form tags.  Those have been added to make matching easier.
+-- The values themselves are also tagged via the 'class' attribute,
+-- which is what we use for dispatch.
+--function class.unref(s,e)
+--   local a = function(m) return m.a end
+--   return s.match({{"(ref ,a)", a}, {",a", a}})
+--end
+function class.map(s,method,lst)
+   return se.map(function(e) return s[method](s,e) end, lst)
+end
+
+
 
 -- Recursive expression compiler.
 function class.comp(s,expr)
@@ -280,6 +297,10 @@ function class.comp(s,expr)
                 s:w(iol_atom(m.fun),"(",s:commalist(m.args),")")
              end
          end},
+         --{"(ref ,var)", function(m)
+         --    assert(m.var.class == 'var')
+         --    s:w_atom(m.var)
+         --end},
          {"(,form . ,args)", function(m)
              error("form '" .. m.form .. "' not supported")
          end},

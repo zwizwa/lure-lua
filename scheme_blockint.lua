@@ -5,7 +5,7 @@
 -- . Space-safe tail recursion.
 --
 -- Implementation:
--- . User provides primitives implementing 'base-ref' free variables.
+-- . User provides primitives through main expression's 'base-ref' parameter.
 -- . Simpler to implement this in Lua, using pattern matching library.
 
 
@@ -17,6 +17,7 @@
 
 local se       = require('lure.se')
 local se_match = require('lure.se_match')
+local comp     = require('lure.comp')
 
 local l2a = se.list_to_array
 local l = se.list
@@ -33,45 +34,54 @@ local function ifte(c,t,f)
    if c then return t else return f end
 end
 
+-- These operate on s.env
+class.def       = comp.def
+class.find_cell = comp.find_cell
+class.ref       = comp.ref
+class.set       = comp.set
+
+function frame(var, expr, env)
+   return {class = 'frame', var = var, expr = expr, env = env }
+end
+
 function class.eval_loop(s, expr, k)
 
-   -- The environment consists of linked frames, each frame
-   -- implemented by a table mapping variables to values.
-   local env = {}
 
-   -- Create binding, always in current environment.  Called on 'ret'
-   -- and for function arguments on frame entry.
-   function def(var, val)
-      assert(val ~= nil)
-      trace("DEF",l(var,val))
-      env[var] = val
-   end
-   -- Reference ans assigment operate on the chained environment.  One
-   -- table per function activation, linked by 'parent' member.
-   function cell_env(var)
-      local e = env
-      while nil ~= e do
-         if nil ~= e[var] then return e end
-         e = e.parent
-      end
-      error("undefined variable '" .. var.unique .. "'")
-   end
-   function ref1(var)
-      local e = cell_env(var)
-      local v = e[var]
-      assert(v ~= nil)
-      return v
-   end
-   function set(var, val)
-      assert(val ~= nil)
-      trace("SET", l(var, val))
-      local e = cell_env(var)
-      e[var] = val
-   end
+   -- The lexical environment is implemented as a flat list.  This is
+   -- slow, but very convenient for analysis.
+   s.env = se.empty
 
+   -- Top level expression is a lambda that defines the linker for all
+   -- free variables present in the original source.
+   s.match(
+      expr,
+      {{'(lambda (,base_ref) ,expr)',
+        function(m)
+           expr = m.expr
+           assert(m.base_ref.class == 'var')
+           s:def(m.base_ref,
+                 function(name)
+                    assert(type(name) == 'string')
+                    local fun = s.prim[name]
+                    if not fun then
+                       error("primitive '" .. name .. "' not defined")
+                    end
+                    trace("PRIM",name)
+                    return fun
+                 end)
+        end}})
+
+   -- FIXME: Implement the continuation as a list to make it printable.
    -- Initial continuation
    local retvar = { class = 'var' }
-   local k = { var = retvar, parent = nil, env = {} }
+   local k =
+      {frame(
+          -- Root continuation receives value in retvar and proceeds
+          -- executing 'return' which will exit the loop.
+          retvar,
+          l('return'),
+          s.env),
+       se.empty}
 
    -- Push / pop evaluation frames.  Note that lexical environment is
    -- decoupled from this dynamic chain of stack frames.
@@ -79,32 +89,16 @@ function class.eval_loop(s, expr, k)
       assert(var)
       trace("CALL",expr1,var,block_rest)
       expr = expr1
-      k = {expr = rest_block, var = var, env = env, parent = k}
+      k = {frame(var, rest_block, s.env), k}
    end
    -- Restore execution context, storing result of subexpression evaluation.
    local function pop(val)
       -- 'def' operates on current environment, so restore that first
-      env  = k.env
-      def(k.var, val)
-      expr = k.expr
-      k    = k.parent
-   end
-
-   -- The lexical environment is extended with one magic variable
-   -- 'base-ref', which is used to obtain references to primitives.
-   local function base_ref(name)
-      assert(type(name) == 'string')
-      local fun = s.prim[name]
-      if not fun then
-         error("primitive '" .. name .. "' not defined")
-      end
-      trace("PRIM",name)
-      return fun
-   end
-   local function ref(var)
-      assert(var.class == 'var')
-      if var.var == 'base-ref' then return base_ref end
-      return ref1(var)
+      local frame = se.car(k)
+      s.env  = frame.env
+      s:def(frame.var, val)
+      expr = frame.expr
+      k    = se.cdr(k)
    end
 
    -- Primitive value: literal or variable referenece.
@@ -113,7 +107,7 @@ function class.eval_loop(s, expr, k)
       local class = thing.class
       assert(class)
       if 'var' == class then
-         return ref(thing)
+         return s:ref(thing)
       elseif 'expr' == class then
          return thing.expr
       elseif 'void' == class then
@@ -133,12 +127,12 @@ function class.eval_loop(s, expr, k)
                 return void
             end},
             {"(set! ,var ,val)", function(m)
-                set(m.var, lit_or_ref(m.val))
+                s:set(m.var, lit_or_ref(m.val))
                 return void
             end},
             {"(lambda ,args ,body)", function(m)
                 trace("LAMBDA",l(m.args, m.body))
-                return ({args = m.args, body = m.body, env = env, class = 'closure'})
+                return ({args = m.args, body = m.body, env = s.env, class = 'closure'})
             end},
             {"(app ,fun . ,args)", function(m)
                 local fun = lit_or_ref(m.fun)
@@ -163,9 +157,15 @@ function class.eval_loop(s, expr, k)
    end
 
    -- Run until the nil continuation.
-   repeat
+   while true do
       trace("EVAL", expr)
 
+      -- Break out of the loop and return to caller.
+      if type(expr) == 'table' and expr[1] == 'return' then
+         return s:ref(retvar)
+      end
+
+      -- Primitive evaluations
       local val = prim_eval(expr)
       if val ~= nil then
          trace("PRIMVAL",val)
@@ -198,7 +198,7 @@ function class.eval_loop(s, expr, k)
                       -- As an optimization, we can perform primitive
                       -- evaluation without a push/pop sequence.
                       trace("PRIMBIND", val)
-                      def(m.var, val)
+                      s:def(m.var, val)
                       expr = rest_block
                    else
                       -- For all the rest we switch evaluation context
@@ -222,8 +222,8 @@ function class.eval_loop(s, expr, k)
                    -- sure that different instantiations of the same
                    -- closure use different storage.  Create a new
                    -- lexical frame.
-                   env = {parent = fun.env}
-                   se.zip(def, fun.args, vals)
+                   s.env = fun.env
+                   se.zip(function(var,val) s:def(var,val) end, fun.args, vals)
                    expr = fun.body
                end},
                {",other", function(m)
@@ -232,9 +232,7 @@ function class.eval_loop(s, expr, k)
                end},
          })
       end
-   until (not k)
-   -- return env[retvar]
-   return ref(retvar)
+   end
 end
 
 

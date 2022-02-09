@@ -86,8 +86,11 @@ local function s_id(s, thing) return thing end
 class.expander = {
    ['string'] = s_id,
    ['number'] = s_id,
-   ['var']    = s_id,
    ['void']   = s_id,
+   ['var']    = s_id,
+   --['var']    = function(s, expr)
+   --   return l('ref',expr)
+   --end,
    ['pair']   = function(s, expr)
       local car, cdr = unpack(expr)
       local m = s.macro[car]
@@ -210,6 +213,7 @@ function class.anf(s, exprs, fn)
       -- FIXME: This should compile before checking if it's primitive.
       if type(e) == 'string' then
          -- Source variable
+         -- ins(normalform, l('ref', s:var_ref(e)))
          ins(normalform, s:var_ref(e))
       elseif is_var(e) then
          -- Abstract variable reference (is this actually possible here?)
@@ -294,7 +298,13 @@ end
 -- Entry point
 function class.compile(s, expr)
    s:init()
-   local body = s:comp(expr)
+
+   -- Body is parameterized by a function that resolves all free
+   -- variables.
+   s.lib_ref = s:var_def('lib-ref')
+   local top_args = l(s.lib_ref)
+   local body = s:comp_extend(expr,top_args)
+
    local bs = l(l('_', body))
    -- Compile the module bindings in a loop, since new module bindings
    -- might be introduced during compilation.
@@ -318,7 +328,7 @@ function class.compile(s, expr)
       end
       i = i + 1
    until (not did)
-   return {'block', bs}
+   return l('lambda',top_args,{'block', bs})
 end
 
 -- All variables are renamed, so gensyms will never clash with anything.
@@ -383,14 +393,7 @@ function class.var_ref(s, var)
    -- to the same var.
    local v = s.free_variables[name]
    if not v then
-      if name == s.base_ref then
-         -- This is the only free variable left.
-         v = s:var_def(name)
-         v.free = true
-      else
-         -- All the rest is bound through base-ref
-         v = s:module_define(name, l(s.base_ref,l('quote',name)))
-      end
+      v = s:module_define(name, l(s.lib_ref,l('quote',name)))
       s.free_variables[name] = v
    end
    return v
@@ -402,7 +405,7 @@ function class.init(s)
    s.free_variables = {}
    s.env = {}
    s.module_bindings = {}
-   s.base_ref = 'base-ref'
+   s.lib_ref = nil
 end
 
 function class.new(config)

@@ -2,7 +2,8 @@
 -- This is factored out from smc.lua to be re-used for different compilers.
 local comp = {}
 
-local se = require('lure.se')
+local iolist = require('lure.iolist')
+local se     = require('lure.se')
 local l = se.list
 
 -- Make writing output syntax as convenient as possible.
@@ -125,6 +126,39 @@ function comp:gensym(prefix)
    local n = self:inc('nb_sym')
    return prefix..n
 end
+
+
+-- Environment maps variables to lists.
+-- Create binding
+function comp:def(var, val)
+   assert(self.env)
+   assert(val ~= nil)
+   -- trace("DEF", l(var,val))
+   local cell = {class = 'cell', val = val}
+   self.env = {l(var,cell), self.env}
+end
+-- Reference and assigment operate on the chained environment.  One
+-- table per function activation, linked by 'parent' member.
+function comp:find_cell(var)
+   local unique = var.unique
+   assert(self.env)
+   for pair in se.elements(self.env) do
+      local v, rest = unpack(pair)
+      if v.unique == unique then return se.car(rest) end
+   end
+   local mangled = iolist.to_string(se.iolist(var))
+   log_se_n(self.env,"ENV:")
+   error("undefined variable '" .. mangled .. "'")
+end
+function comp:ref(var)
+   return self:find_cell(var).val
+end
+function comp:set(var, val)
+   local cell = self:find_cell(var)
+   cell.val = val
+end
+
+
 
 
 -- Let insertion happens often enough, so make an abstraction.
