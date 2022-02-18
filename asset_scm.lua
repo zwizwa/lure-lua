@@ -608,16 +608,47 @@ asdf
 
 
 ]],
-['test_scheme_blockint.scm'] = [[
+['test_scheme_eval.scm'] = [[
 ;; Each expression is evaluated separately in test_scheme2.lua
 
+
+
+
+;; First couple are for manual inspection.
+
+;; Prim val
 123
 
-(begin 1 2)
-
+;; Prim fun
 (+ 1 2)
 
+;; Block sequencing
+(begin 1 2)
+
+;; Block sequencing + prim eval.
 (+ (+ 1 2) (+ 3 4))
+
+;; Closure call to inc, in tail and non tail position.
+;; This is to test push/pop.  See 
+(begin
+  (define (inc x) (+ 1 x)) ;; closure
+  (let ((tmp (inc 1)))     ;; non-tail call
+    (inc tmp)))            ;; tail call
+
+
+
+;; The rest use asserts.
+
+(assert (= 3 (+ 1 (begin 1 2))))
+(assert (= 3 (if #t (begin 1 2 3) (begin 4 5 6))))
+(assert (= 6 (if #f (begin 1 2 3) (begin 4 5 6))))
+
+(assert
+ (= 465
+    (let loop ((n 2))
+      (if (> n 10) n
+          (+ (loop (+ n 1))
+             (loop (* 2 n)))))))
 
 (assert
  (= 456
@@ -638,13 +669,19 @@ asdf
     (let loop ((n 0))
       (if (> n 3) n (loop (+ n 1))))))
     
-(assert
- (= 465
-    (let loop ((n 2))
-      (if (> n 10) n
-          (+ (loop (+ n 1))
-             (loop (* 2 n)))))))
 
+(assert 123 (call/cc (lambda (k) (k 123) 456)))
+(assert 456 (call/cc (lambda (k) 456)))
+(assert 234 (+ 111 (call/cc (lambda (k) (k 123) 456))))
+(assert 567 (+ 111 (call/cc (lambda (k) 456))))
+(assert 123 (call/cc (lambda (k) (+ 1 (+ 1 (+ 1 (k 123)))))))
+
+
+
+(assert (= 2 (begin 1 (abort 2) 3)))
+
+
+           
 ]],
 ['test_scheme_luapp.scm'] = [[
 (block
@@ -682,35 +719,234 @@ asdf
 ['test_scheme_sm.scm'] = [[
 ;; Each expression is compiled separately.
 
+;; The compilation path is:
+;; in -> frontend -> sm -> escape -> frontend -> eval
+;;                -> eval
+;;
+
+;; Compiler output is converted back to Scheme and interpreted.  The
+;; evaluation result is compared with the result of interpreting the
+;; original Scheme code.
+
+;; The trace function is used to abort execution after a fixed number
+;; of calls for testing the head of infinite loops.
+
+
+
+123
+
+;; Non-recursive function inline path.
+(let* ((f (lambda (x) (+ x 1)))
+       (rv (f 1)))
+  rv)
+
+;; Simplest infinite loop
+(letrec
+    ((x (lambda ()
+          (trace)
+          (x))))
+  (x))
+
+;; Infinite single rec
 (let loop ((n 0))
-  (if (> n 3) n (loop (+ n 1))))
+  (trace n)
+  (if (> n 3)
+      (loop 0)
+      (loop (+ n 1))))
 
 
-;; 123
+;; Finite mutual rec loop
+(begin
+  (define (f1 n)
+    (if (> n 3)
+        n
+        (f2 (+ n 1))))
+  (define (f2 n)
+    (f1 (+ n 1)))
+  (let ((rv (f1 0)))
+    (assert (= 5 (+ rv 1)))))
 
-;; (begin 1 2)
+;; Test if contination
+(if #t 1 2)
+(if #f 1 (if #f 2 3))
+(let ((a (if #t 1 2)))
+  a)
 
-;; (+ 1 2)
+(assert (= 1 (if #t 1 2)))
+(assert (= 3 (if #f 1 (if #f 2 3))))
+(assert (= 1 (let ((a (if #t 1 2))) a)))
 
-;; (+ (+ 1 2) (+ 3 4))
 
-;; (if (= 1 2) 123 456)
+;; The 'blockval' problem: convert binding to void binding + set! cont.
+(let ((a
+       (if 1
+           (if (let ((b 2))
+                 (+ b b))
+               3
+               4)
+           (if 5
+               6
+               7))))
+  (+ a a))
 
-;; (begin (define (id x) x) (id 123))
 
-;; (let ((a (+ 1 2))
-;;       (b (+ 3 4)))
-;;   (+ a b))
+;; Infinite mutual rec
+(begin
+  (define (f1 n)
+    (trace 'f1 n)
+    (if (> n 3)
+        (f1 0)
+        (f2 (+ n 1))))
+  (define (f2 n)
+    (trace 'f2 n)
+    (f1 (+ n 1)))
+  (f1 0))
 
-;; (let loop ((n 0))
-;;   (if (> n 3) n (loop (+ n 1))))
 
-;; ;; Should fail compilation due to inline loop.
-;; (let loop ((n 2))
-;;   (if (> n 10) n
-;;       (+ (loop (+ n 1))
-;;          (loop (* 2 n)))))
 
+;; Nested loops
+;(begin
+;  (let loop1 ((i 0))
+;    (if (> i 3) i
+;        (let loop2 ((j 0))
+;          (if (> (+ i j) 3) j
+;              (loop2 (+ j 1)))))))
+
+;; Finite nested
+(begin
+  (let ((done 123))
+    (let loopi ((i 0))
+      (if (> i 3) done
+          (begin
+            (let loopj ((j 0))
+              (if (> j i)
+                  done
+                  (loopj (+ j 1))))
+            (loopi (+ i 1)))))))
+
+
+;; Finite single
+(let loop ((n 0))
+  (if (> n 3)
+      n
+      (loop (+ n 1))))
+
+
+;; Finite single, twice
+(begin
+  (define (loop n)
+    (if (> n 3)
+        n
+        (loop (+ n 1))))
+  (let* ((a (loop 0))
+         (b (loop 0)))
+    (+ a b)))
+
+
+;; Constructed to trigger bug in if continuation.
+(begin
+  (define (loop1 n)
+    (trace)
+    (loop1 (if #t (+ n 1) 0)))
+  (loop1 0))
+
+;; Constructed to trigger old scope issue.
+(begin
+  (define (loop1 n)
+    (let* ((a 1)
+           (add1 (lambda (x) (+ a x))))
+      
+      (if (> n 3) 3
+          (loop1 (add1 n)))))
+              
+  (define (loop2 n)
+    (if n
+        (loop1 (+ n 1))
+        (loop1 (+ n 2))))
+  (loop2 0))
+
+
+;; Constructed to trigger old scope issue.
+(begin
+  (define (loop1 n)
+    (if (> n 3) 3 (loop1 (+ n 1))))
+              
+  (define (loop2 n)
+    (if n
+        (loop1 (+ n 1))
+        (loop1 (+ n 2))))
+  (loop2 0))
+
+(begin
+  (define (fib1 n n1)
+    (trace n)
+    (fib1 (+ n n1) n))
+  (fib1 1 1))
+
+
+(begin
+  (let ((s 0))
+    (define (fib2 n)
+      (trace n)
+      (let ((next (+ n s)))
+        (set! s n)
+        (fib2 next)))
+    (fib2 1)))
+
+
+;; It's a surprise that 'state' is in scope when the lambda is
+;; inlined.  Can this mechanism be exploited further?  Note that in
+;; the Scheme frontent, state _is_ private and cannot be accessed
+;; inside loop.
+(begin
+  (let ((counter
+         (let ((state 0))
+           (lambda ()
+             (set! state (+ state 1))
+             state))))
+    (let loop ()
+      (trace (counter))
+      (loop))))
+
+;; Construct an example that does fail.  Here the compile time value
+;; of counter is #<runtime>, i.e. it points to the variable that comes
+;; out of the if.
+;; (begin
+;;   (let ((counter
+;;          (if #f 0
+;;              (let ((state 0))
+;;                (lambda ()
+;;                  (set! state (+ state 1))
+;;                  state)))))
+;;     (let loop ()
+;;       (trace (counter))
+;;       (loop)))
+;; There must be more ways to move things around.
+
+
+;; How to make this one work?
+'(begin
+  (let*
+      ((make-counter
+        (lambda ()
+          (let ((state 0))
+            (lambda ()
+              (set! state (+ state 1))
+              state))))
+       (counter1 (make-counter))
+       (counter2 (make-counter)))
+    (let loop ()
+      (trace (counter1) (counter2))
+      (loop))))
+
+;; This doesn't compile properly due to dropping of ephemerals.  Maybe
+;; leave the ephemerals in the output for debugging?  In a correct
+;; program they are all unused varibles.
+'(let ((a
+       (lambda ()
+         (let ((b (lambda () 123)))
+           b))))
+  (a))
 ]],
 ['test_slc.scm'] = [[
 (define (test_add a b) (add a b))

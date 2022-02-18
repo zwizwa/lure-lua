@@ -74,6 +74,24 @@ local pprint_form = {
             s:pprint(efalse)
          end)
    end,
+   ['labels'] = function(s, expr)
+      local _, clauses = se.unpack(expr, {n=1, tail=true})
+      s:w("(labels ")
+      for clause in se.elements(clauses) do
+         local name, body = se.unpack(clause, {n=2})
+         s:indented(
+            function()
+               s:w("\n",s:tab(),"(", se.iolist(name), " ")
+               s:indented(
+                  function()
+                     s:pprint(body)
+                  end)
+               s:w(")")
+            end)
+      end
+      s:w(")")
+   end,
+
 }
 local function pp_app(s, expr)
    s:w(se.iolist(expr))

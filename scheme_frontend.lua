@@ -40,7 +40,8 @@ local class = {
 }
 
 local void = {
-   class = "void"
+   class = "void",
+   iolist = '#<void>'
 }
 class.void = void
 
@@ -87,10 +88,9 @@ class.expander = {
    ['string'] = s_id,
    ['number'] = s_id,
    ['void']   = s_id,
+   ['prim']   = s_id,
+   ['expr']   = s_id,
    ['var']    = s_id,
-   --['var']    = function(s, expr)
-   --   return l('ref',expr)
-   --end,
    ['pair']   = function(s, expr)
       local car, cdr = unpack(expr)
       local m = s.macro[car]
@@ -106,7 +106,10 @@ function class.expand_step(s, expr)
    trace("STEP",expr)
    local typ = se.expr_type(expr)
    local f = s.expander[typ]
-   if f == nil then error('expand: bad type ' .. typ) end
+   if f == nil then
+      log_se_n(expr, "BAD_EXPAND:")
+      error('expand: bad type ' .. typ)
+   end
    return f(s, expr)
 end
 
@@ -167,6 +170,11 @@ class.form = {
       local _, datum = se.unpack(expr, {n = 2})
       return { class = 'expr', expr = datum, iolist = quote_to_iolist }
    end,
+   ['hint'] = function(s, expr)
+      -- Same evaluation as function call, but tagged differently.
+      return {'hint', se.cdr(s:apply(se.cdr(expr)))}
+   end,
+
 }
 
 -- Compile in extended environment
@@ -241,7 +249,7 @@ function class.anf(s, exprs, fn)
    end
 end
 
-local function apply(s, expr)
+function class.apply(s, expr)
    local fun, args = unpack(expr)
    -- Expand to expose lambda expressions.
    fun = s:expand(fun)
@@ -269,6 +277,8 @@ end
 class.compiler = {
    ['number'] = s_id,
    ['void']   = s_id,
+   ['prim']   = s_id,
+   ['expr']   = s_id,
    ['string'] = function(s, str)
       local var = s:var_ref(str)
       assert(var and var.class == 'var')
@@ -282,7 +292,7 @@ class.compiler = {
       if f ~= nil then
          return f(s, expr)
       else
-         return apply(s, expr)
+         return s:apply(expr)
       end
    end
 }
@@ -291,7 +301,10 @@ function class.comp(s, expr0)
    trace("COMPILE",expr)
    local typ = se.expr_type(expr)
    local f = s.compiler[typ]
-   if f == nil then error('compile: bad type ' .. typ) end
+   if f == nil then
+      log_se_n(l(expr,expr0),"BAD_COMP:")
+      error('compile: bad type ' .. typ)
+   end
    return f(s, expr)
 end
 
@@ -299,8 +312,8 @@ end
 function class.compile(s, expr)
    s:init()
 
-   -- Body is parameterized by a function that resolves all free
-   -- variables.
+   -- Body is parameterized by a function that is used to perform
+   -- symbol lookup for all free variables.
    s.lib_ref = s:var_def('lib-ref')
    local top_args = l(s.lib_ref)
    local body = s:comp_extend(expr,top_args)
@@ -353,13 +366,20 @@ end
 -- Renames definitions and references.
 function var_iolist(var)
    assert(var.unique)
-   local orig = {":",var.var}
+   local orig = {".",var.var}
    if nil == var.var then orig = "" end
    return {var.unique,orig}
 end
+class.var_iolist = var_iolist
 
 function class.make_var(unique, name)
    assert(unique)
+   -- No longer support variables in the input: if IR is fed into the
+   -- frontend, strip all vars first.
+   if name ~= nil and type(name) ~= 'string' then
+      log_se_n(name, "BAD_VAR_NAME:")
+      error('source var name not a string')
+   end
    return { var = name, unique = unique, class = 'var', iolist = var_iolist }
 end
 
@@ -388,9 +408,9 @@ function class.var_ref(s, var)
    local binding = s.module_bindings[name]
    if binding then return se.car(binding) end
 
-   -- Free variables are explicitly associated to a base dictionary
-   -- dereference.  We need to keep track of them so they always map
-   -- to the same var.
+   -- Free variables are mapped to a symbol lookup expression inserted
+   -- at the head of the module.  We need to keep track of them so
+   -- they always map to the same lexical variable.
    local v = s.free_variables[name]
    if not v then
       v = s:module_define(name, l(s.lib_ref,l('quote',name)))

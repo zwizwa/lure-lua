@@ -23,6 +23,8 @@ local function assert_pair(pair) assert(type(pair) == 'table') end
 local function car(pair) assert_pair(pair); return pair[1] end; se.car = car
 local function cdr(pair) assert_pair(pair); return pair[2] end; se.cdr = cdr
 local function cadr(ppair) return car(cdr(ppair)) end; se.cadr = cadr
+local function caar(ppair) return car(car(ppair)) end; se.caar = caar
+local function cdar(ppair) return cdr(car(ppair)) end; se.cdar = cdar
 local function cons(a, d) return {a, d} end; se.cons = cons
 local function is_empty(lst) return lst == empty end; se.is_empty = is_empty
 
@@ -186,6 +188,15 @@ local function equalp(a, b)
    return equalp(a[1],b[1]) and equalp(a[2],b[2])
 end
 se.equalp = equalp
+
+
+-- Use a tagged s-expression as a stack.
+local function push_cdr(el, lst)
+   local tail = cdr(lst)
+   lst[2] = {el, tail}
+end
+se.push_cdr = push_cdr
+
 
 
 -- READER
@@ -525,6 +536,28 @@ function se.constructor(thing)
    end
    return cons
 end
+
+
+-- Map over a particular data type contained in an s-expression.
+-- I.e. turn an s-expression into a functor.
+function fmap(class, fun, expr)
+   local function map(expr)
+      local typ = type(expr)
+      if typ ~= 'table' then
+         return expr
+      elseif nil == expr.class then
+         -- Pair
+         return {map(expr[1]), map(expr[2])}
+      elseif class == expr.class then
+         return fun(expr)
+      else
+         return expr
+      end
+   end
+   return map(expr)
+end
+se.fmap = fmap
+
 
 return se
 
